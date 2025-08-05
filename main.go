@@ -22,7 +22,7 @@ func main() {
 	rootCmd := &cobra.Command{
 		Use:     "portscanner",
 		Short:   "Escaneia portas TCP em um host",
-		Version: "1.0.0",
+		Version: "1.0.1",
 	}
 
 	scanCmd := &cobra.Command{
