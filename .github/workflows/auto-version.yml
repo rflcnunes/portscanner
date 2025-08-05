@@ -1,0 +1,92 @@
+name: Auto Version Bump
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+jobs:
+  version-bump:
+    if: github.event_name == 'push' || (github.event.pull_request.merged == true)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+
+      - name: Setup Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: "1.21"
+
+      - name: Get current version
+        id: current_version
+        run: |
+          VERSION=$(grep -o 'Version: "[^"]*"' main.go | cut -d'"' -f2)
+          echo "Current version: $VERSION"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+      - name: Bump version
+        id: bump_version
+        run: |
+          CURRENT_VERSION="${{ steps.current_version.outputs.version }}"
+
+          # Parse version (assuming semantic versioning x.y.z)
+          IFS='.' read -ra VERSION_PARTS <<< "$CURRENT_VERSION"
+          MAJOR=${VERSION_PARTS[0]}
+          MINOR=${VERSION_PARTS[1]}
+          PATCH=${VERSION_PARTS[2]}
+
+          # Increment patch version
+          PATCH=$((PATCH + 1))
+          NEW_VERSION="$MAJOR.$MINOR.$PATCH"
+
+          echo "New version: $NEW_VERSION"
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Update version in code
+        run: |
+          NEW_VERSION="${{ steps.bump_version.outputs.new_version }}"
+          sed -i "s/Version: \"[^\"]*\"/Version: \"$NEW_VERSION\"/" main.go
+
+          echo "Updated main.go with version $NEW_VERSION"
+
+      - name: Create tag
+        run: |
+          NEW_VERSION="${{ steps.bump_version.outputs.new_version }}"
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+
+          git add main.go
+          git commit -m "Bump version to $NEW_VERSION [skip ci]"
+          git tag "v$NEW_VERSION"
+
+      - name: Push changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: main
+          tags: true
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: "v${{ steps.bump_version.outputs.new_version }}"
+          release_name: "Release v${{ steps.bump_version.outputs.new_version }}"
+          body: |
+            ## Changes
+            - Automatic version bump to ${{ steps.bump_version.outputs.new_version }}
+
+            ## Installation
+            ```bash
+            go install github.com/${{ github.repository }}@v${{ steps.bump_version.outputs.new_version }}
+            ```
+          draft: false
+          prerelease: false
